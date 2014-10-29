@@ -21,7 +21,7 @@ int main(int argc, char* argv[]) {
   Game g1("Hello");
   Game g2("Goodbye");
   Quad q1;
-  q1.texture("./share/cabrio_logo.png");
+  q1.image("./share/images/cabrio_logo.png");
   q1.size_x = 3;
   q1.size_y = 1;
 

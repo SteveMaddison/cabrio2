@@ -24,12 +24,18 @@ class Quad {
     float rotation_z;
     float alpha;
 
-    Image *texture();
-    void texture(Image *i);
-    void texture(std::string path);
+    Image *image();
+    void image(Image *i);
+    void image(std::string path);
+
+    unsigned int texture_id();
+    unsigned int set_texture_id(unsigned int i);
+    bool texture_dirty();
 
   private:
-    Image *image;
+    Image *image_;
+    uint texture_id_;
+    bool texture_dirty_;
 };
 
 #endif

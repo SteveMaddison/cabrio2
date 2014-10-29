@@ -4,26 +4,46 @@
 #include "Quad.hpp"
 
 Quad::Quad() {
-  image = NULL;
-  this->size_x = 1.0f;
-  this->size_y = 1.0f;
+  image_ = NULL;
+
+  size_x = 1.0f;
+  size_y = 1.0f;
+
+  texture_id_ = 0;
+  texture_dirty_ = true;
 }
 
 Quad::~Quad() {
-  if ( image ) {
-    delete image;
+  if ( image_ ) {
+    delete image_;
   }
 }
 
-Image *Quad::texture() {
-  return image;
+Image *Quad::image() {
+  return image_;
 }
 
-void Quad::texture(Image *i) {
-  image = i;
+void Quad::image(Image *i) {
+  image_ = i;
+  texture_dirty_ = true;
 }
 
-void Quad::texture(std::string path) {
+void Quad::image(std::string path) {
   Image *i = new Image(path);
-  image = i;
+  image_ = i;
+  texture_dirty_ = true;
+}
+
+unsigned int Quad::texture_id() {
+  return texture_id_;
+}
+
+unsigned int Quad::set_texture_id(unsigned int i) {
+  texture_id_ = i;
+  texture_dirty_ = false;
+  return texture_id_;
+}
+
+bool Quad::texture_dirty() {
+  return texture_dirty_;
 }

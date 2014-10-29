@@ -3,14 +3,18 @@
 //
 #include "RendererOpenGL.hpp"
 #include "Logger.hpp"
+#include "Image.hpp"
 
 #include <ios>
+#include <iostream>
 #include <fstream>
 #include <string>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/transform.hpp>
+
+#include <SDL2_rotozoom.h>
 
 using namespace std;
 
@@ -26,6 +30,17 @@ static const GLfloat g_vertex_quad[] = {
   -1.0f,  1.0f, 0.0f,
 };
 
+// Texture UV co-ordinates for the quad.
+static const GLfloat g_uv_buffer_quad[] = {
+  // Bottom-left
+  0.0f, 1.0f, 0.0f,
+  0.0f, 0.0f, 0.0f,
+  1.0f, 0.0f, 0.0f,
+  // Top-right
+  1.0f, 0.0f, 0.0f,
+  1.0f, 1.0f, 0.0f,
+  0.0f, 1.0f, 0.0f,
+};
 
 RendererOpenGL::RendererOpenGL() {
 
@@ -42,19 +57,37 @@ GLuint LoadShaders(){
   GLuint FragmentShaderID = glCreateShader(GL_FRAGMENT_SHADER);
 
   std::string VertexShaderCode;
+  //VertexShaderCode += "#version 330 core\n";
+  //VertexShaderCode += "layout(location = 0) in vec3 vertexPosition_modelspace;\n";
+  //VertexShaderCode += "uniform mat4 MVP;\n";
+  //VertexShaderCode += "void main(){\n";
+  //VertexShaderCode += "  vec4 v = vec4(vertexPosition_modelspace,1);\n";
+  //VertexShaderCode += "  gl_Position = MVP * v;\n";
+  //VertexShaderCode += "}\n";
+
   VertexShaderCode += "#version 330 core\n";
   VertexShaderCode += "layout(location = 0) in vec3 vertexPosition_modelspace;\n";
+  VertexShaderCode += "layout(location = 1) in vec2 vertexUV;\n";
+  VertexShaderCode += "out vec2 UV;\n";
   VertexShaderCode += "uniform mat4 MVP;\n";
   VertexShaderCode += "void main(){\n";
-  VertexShaderCode += "  vec4 v = vec4(vertexPosition_modelspace,1);\n";
-  VertexShaderCode += "  gl_Position = MVP * v;\n";
+  VertexShaderCode += "  gl_Position =  MVP * vec4(vertexPosition_modelspace,1);\n";
+  VertexShaderCode += "  UV = vertexUV;\n";
   VertexShaderCode += "}\n";
 
   std::string FragmentShaderCode;
+  //FragmentShaderCode += "#version 330 core\n";
+  //FragmentShaderCode += "out vec3 color;\n";
+  //FragmentShaderCode += "void main(){\n";
+  //FragmentShaderCode += "  color = vec3(1,0,0);\n";
+  //FragmentShaderCode += "}\n";
+
   FragmentShaderCode += "#version 330 core\n";
+  FragmentShaderCode += "in vec2 UV;\n";
   FragmentShaderCode += "out vec3 color;\n";
+  FragmentShaderCode += "uniform sampler2D myTextureSampler;\n";
   FragmentShaderCode += "void main(){\n";
-  FragmentShaderCode += "  color = vec3(1,0,0);\n";
+  FragmentShaderCode += "color = texture( myTextureSampler, UV ).rgb;\n";
   FragmentShaderCode += "}\n";
 
   GLint Result = GL_FALSE;
@@ -153,6 +186,145 @@ int RendererOpenGL::init() {
   return 0;
 }
 
+unsigned int next_power_of_two( unsigned int x ) {
+  int i = 0;
+  if( x == 0 ) return 1;
+  for( i = 0; x > 0 ; i++, x>>=1 );
+  return 1<<i;
+}
+
+SDL_Surface *resize( SDL_Surface *surface ) {
+  Logger& logger = Logger::get_instance();
+
+  if (surface == NULL) {
+    logger.log(LOG_DEBUG, "Can't resize NULL surface.");
+  }
+
+  unsigned int x = surface->w;
+  unsigned int y = surface->h;
+  SDL_Surface *resized = NULL;
+
+  if( (surface->w & (surface->w-1)) != 0 )
+    x = next_power_of_two( surface->w );
+  //while( x > config->iface.gfx_max_width )
+  //  x>>=1;
+
+  if( (surface->h & (surface->h-1)) != 0 )
+    y = next_power_of_two( surface->w );
+  //while( y > config->iface.gfx_max_height )
+  //  y>>=1;
+
+  if( x != surface->w || y != surface->h ) {
+    SDL_Surface *tmp = NULL;
+    int dx,dy;
+    double sx = (double)x/(double)surface->w;
+    double sy = (double)y/(double)surface->h;
+
+    /* Before we resize, check the result is definitely a power
+     * of two, as this can go wrong due to rounding errors. */
+    do {
+      zoomSurfaceSize( surface->w, surface->h, sx, sy, &dx, &dy );
+      if( (dx & (dx-1)) != 0 ) {
+        if( (dx & (dx-1)) == 1 ) {
+          sx -= 0.001;
+        }
+        else {
+          sx += 0.001;
+        }
+      }
+      if( (dy & (dy-1)) != 0 ) {
+        if( (dy & (dy-1)) == 1 ) {
+          sy -= 0.001;
+        }
+        else {
+          sy += 0.001;
+        }
+      }
+      } while( (dx & (dx-1)) != 0 && (dy & (dy-1)) != 0 );
+
+    tmp = zoomSurface( surface, sx, sy, 0 );
+    resized = SDL_ConvertSurfaceFormat(tmp, SDL_PIXELFORMAT_RGBA8888, 0);
+    SDL_FreeSurface( tmp );
+  }
+
+  return resized;
+}
+
+bool create_texture(Image *image, GLuint *texture_id) {
+  Logger& logger = Logger::get_instance();
+
+  GLuint filter = GL_LINEAR;
+
+  //if( config->iface.gfx_quality != CONFIG_HIGH )
+  //  filter = GL_NEAREST;
+
+  if (image->surface() == NULL) {
+    logger.log(LOG_ERROR, "Can't create texture from NULL surface.");
+    return false;
+  }
+
+  SDL_Surface *resized = NULL;
+//  if( strstr( (char*)glGetString(GL_EXTENSIONS), "GL_ARB_texture_non_power_of_two" ) == NULL ) {
+//    /* This OpenGL implementation only supports textures with power-of-two
+//     * dimensions, so we need to resize the surface before going further */
+    logger.log(LOG_DEBUG, "Resizing surface");
+
+    resized = resize(image->surface());
+    if (resized == NULL) {
+      logger.log(LOG_ERROR, "Error resizing surface to create texture." );
+    }
+    logger.log(LOG_DEBUG, "Resized surface");
+//  }
+
+  SDL_Surface *work = resized ? resized : image->surface();
+
+  /* determine image format */
+  GLint bpp = work->format->BytesPerPixel;
+  GLenum format = 0;
+  switch( bpp ) {
+    case 4:
+      if (work->format->Rmask == 0x000000ff)
+        format = GL_RGBA;
+      else
+        format = GL_BGRA;
+      break;
+    case 3:
+      if (work->format->Rmask == 0x000000ff)
+        format = GL_RGB;
+      else
+        format = GL_BGR;
+      break;
+    default:
+      logger.log(LOG_ERROR, "Image is not true colour (bpp must be 3 or 4).");
+      if( work != image->surface() )
+        SDL_FreeSurface( work );
+      return false;
+      break;
+  }
+
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glGenTextures(1, texture_id);
+  glBindTexture(GL_TEXTURE_2D, *texture_id);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
+  glTexImage2D(GL_TEXTURE_2D, 0, bpp, work->w, work->h, 0, format, GL_UNSIGNED_BYTE, work->pixels);
+
+  if( work != image->surface() )
+    SDL_FreeSurface( work );
+
+  //GLenum error = glGetError();
+  //if( error != GL_NO_ERROR ) {
+  //  logger.log(LOG_ERROR, "Error creating texture.");
+  //  return false;
+  //}
+
+  logger.log(LOG_DEBUG, "Texture converted successfully.");
+
+  return true;
+}
+
 int RendererOpenGL::draw_all() {
   std::vector<Quad>::iterator q;
 
@@ -172,6 +344,22 @@ int RendererOpenGL::draw_all() {
   );
 
   while (q != this->quads.end()) {
+    if (q->image() and q->texture_dirty()) {
+      // Refresh texture.
+      GLuint old_id = q->texture_id();
+      if (old_id) {
+        glDeleteTextures(1, &old_id);
+      }
+
+      GLuint new_id;
+      if (create_texture(q->image(), &new_id)) {
+        q->set_texture_id(new_id);
+      }
+      else {
+        q->set_texture_id(0);
+      }
+    }
+
     glm::mat4 Model = glm::mat4(1.0f);
 
     Model = glm::scale(Model, glm::vec3(q->size_x, q->size_y, 1.0f));
@@ -189,6 +377,15 @@ int RendererOpenGL::draw_all() {
     glGenBuffers(1, &vertexbuffer);
     glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
     glBufferData(GL_ARRAY_BUFFER, sizeof(g_vertex_quad), g_vertex_quad, GL_STATIC_DRAW);
+
+    GLuint uvbuffer;
+    glGenBuffers(1, &uvbuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, uvbuffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(g_uv_buffer_quad), g_uv_buffer_quad, GL_STATIC_DRAW);
+
+    // Bind texture
+    GLuint texture_id = q->texture_id();
+    glBindTexture(GL_TEXTURE_2D, texture_id);
 
     glEnableVertexAttribArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
