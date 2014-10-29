@@ -36,7 +36,8 @@ RendererOpenGL::~RendererOpenGL() {
 }
 
 GLuint LoadShaders(){
-  // Create the shaders
+  Logger& logger = Logger::get_instance();
+
   GLuint VertexShaderID = glCreateShader(GL_VERTEX_SHADER);
   GLuint FragmentShaderID = glCreateShader(GL_FRAGMENT_SHADER);
 
@@ -70,7 +71,7 @@ GLuint LoadShaders(){
   if ( InfoLogLength > 0 ){
     std::vector<char> VertexShaderErrorMessage(InfoLogLength+1);
     glGetShaderInfoLog(VertexShaderID, InfoLogLength, NULL, &VertexShaderErrorMessage[0]);
-    printf("%s\n", &VertexShaderErrorMessage[0]);
+    logger.log(LOG_ERROR, &VertexShaderErrorMessage[0]);
   }
 
   // Compile Fragment Shader
@@ -84,7 +85,7 @@ GLuint LoadShaders(){
   if ( InfoLogLength > 0 ){
     std::vector<char> FragmentShaderErrorMessage(InfoLogLength+1);
     glGetShaderInfoLog(FragmentShaderID, InfoLogLength, NULL, &FragmentShaderErrorMessage[0]);
-    printf("%s\n", &FragmentShaderErrorMessage[0]);
+    logger.log(LOG_ERROR, &FragmentShaderErrorMessage[0]);
   }
 
   // Link the program
@@ -99,7 +100,7 @@ GLuint LoadShaders(){
   if ( InfoLogLength > 0 ){
     std::vector<char> ProgramErrorMessage(InfoLogLength+1);
     glGetProgramInfoLog(ProgramID, InfoLogLength, NULL, &ProgramErrorMessage[0]);
-    printf("%s\n", &ProgramErrorMessage[0]);
+    logger.log(LOG_ERROR, &ProgramErrorMessage[0]);
   }
 
   glDeleteShader(VertexShaderID);
@@ -147,9 +148,6 @@ int RendererOpenGL::init() {
   glBindVertexArray(VertexArrayID);
 
   program_id = LoadShaders();
-
-  // Get a handle for our "MVP" uniform.
-  // Only at initialisation time.
   matrix_id = glGetUniformLocation(program_id, "MVP");
 
   return 0;
@@ -174,8 +172,7 @@ int RendererOpenGL::draw_all() {
   );
 
   while (q != this->quads.end()) {
-    // Model matrix : an identity matrix (model will be at the origin)
-    glm::mat4 Model = glm::mat4(1.0f);  // Changes for each model !
+    glm::mat4 Model = glm::mat4(1.0f);
 
     Model = glm::scale(Model, glm::vec3(q->size_x, q->size_y, 1.0f));
     Model = glm::rotate(Model, q->rotation_x, glm::vec3(1, 0, 0));
@@ -214,4 +211,3 @@ int RendererOpenGL::draw_all() {
 
   return 0;
 }
-
